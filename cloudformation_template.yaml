@@ -2,43 +2,29 @@ AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   Password:
     Type: String
-  S3BucketRegion:
+  Environment:
     Type: String
-    Default: "eu-west-1"
-    Description: "Region where the S3 bucket is located"
+    Default: "dev"
+    Description: "Environment name for resource uniqueness"
 
 Resources:
-  # Secrets Manager for One-Time Password
   OneTimePassword:
     Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
-      Name: "OneTimePassword"
-      SecretString: !Sub '{"password":"${AWS::Region}-generated-password"}'
+      Name: !Sub "OneTimePassword-v5-${Environment}-${AWS::Region}"
+      SecretString: !Sub '{"password":"${Password}"}'
 
-  # Log Group for Lambda Function
-  LambdaLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: "/aws/lambda/user-creation-logs"
-      RetentionInDays: 14
-
-  # Log Stream for Lambda Function
-  LambdaLogStream:
-    Type: AWS::Logs::LogStream
-    Properties:
-      LogGroupName: !Ref LambdaLogGroup
-      LogStreamName: "user-creation-stream"
-
-  # S3 User Group with read-only access to S3
   S3UserGroup:
     Type: AWS::IAM::Group
     Properties:
-      GroupName: "S3UserGroupB1"
+      GroupName: !Sub "S3UserGroupV5-${Environment}"
 
   S3UserGroupPolicy:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: "S3ReadOnlyAccessPolicy-B1"
+      PolicyName: !Sub "S3ReadOnlyAccessPolicy-v5-${Environment}"
       Groups:
         - Ref: "S3UserGroup"
       PolicyDocument:
@@ -50,16 +36,17 @@ Resources:
               - "s3:GetObject"
             Resource: "*"
 
-  # EC2 User Group with read-only access to EC2
   EC2UserGroup:
     Type: AWS::IAM::Group
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
-      GroupName: "EC2UserGroup-B1"
+      GroupName: !Sub "EC2UserGroup-v5-${Environment}"
 
   EC2UserGroupPolicy:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: "EC2ReadOnlyAccessPolicy-B1"
+      PolicyName: !Sub "EC2ReadOnlyAccessPolicy-v5-${Environment}"
       Groups:
         - Ref: "EC2UserGroup"
       PolicyDocument:
@@ -70,33 +57,30 @@ Resources:
               - "ec2:DescribeInstances"
             Resource: "*"
 
-  # EC2 User
   EC2User:
     Type: AWS::IAM::User
     Properties:
-      UserName: "ec2-user-B1"
+      UserName: !Sub "ec2-user-v5-${Environment}"
       Groups:
         - Ref: "EC2UserGroup"
       Tags:
         - Key: "email"
           Value: "rossieEC2@gmail.com"
 
-  # S3 User
   S3User:
     Type: AWS::IAM::User
     Properties:
-      UserName: "s3-user-B1"
+      UserName: !Sub "s3-user-v5-${Environment}"
       Groups:
         - Ref: "S3UserGroup"
       Tags:
         - Key: "email"
           Value: "rossieS3@gmail.com"
 
-  # EventBridge Rule to detect new user creation
   EventBridgeRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: "NewUserCreationRule"
+      Name: !Sub "NewUserCreationRule-v5-${Environment}"
       EventPattern:
         source:
           - "aws.iam"
@@ -109,28 +93,29 @@ Resources:
         - Arn: !GetAtt "LambdaFunction.Arn"
           Id: "LambdaFunctionTarget"
 
-  # Lambda Function to log email and password
   LambdaFunction:
     Type: AWS::Lambda::Function
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
-      FunctionName: "LogUserCreation"
+      FunctionName: !Sub "LogUserCreation-v5-${Environment}"
       Handler: "org.rossie.LogUserLambda::handleRequest"
       Role: !GetAtt "LambdaExecutionRole.Arn"
       Runtime: "java17"
       Code:
         S3Bucket: "bucket1-7nyh"
         S3Key: "Automating_IAM_Creation-1.0-SNAPSHOT.jar"
-        S3ObjectVersion: !Ref "AWS::NoValue"
       Environment:
         Variables:
-          LOG_GROUP_NAME: !Ref LambdaLogGroup
-          LOG_STREAM_NAME: !Ref LambdaLogStream
-          S3_BUCKET_REGION: !Ref S3BucketRegion
+          ENVIRONMENT: !Ref Environment
+          CUSTOM_REGION: !Ref "AWS::Region"
       Timeout: 30
+      MemorySize: 512
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub "LogUserCreationRole-v5-${Environment}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -141,25 +126,21 @@ Resources:
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       Policies:
-        - PolicyName: "LogUserCreationPolicy"
+        - PolicyName: !Sub "LogUserCreationPolicy-v5-${Environment}"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: "Allow"
                 Action:
                   - "secretsmanager:GetSecretValue"
-                  - "logs:CreateLogGroup"
-                  - "logs:CreateLogStream"
-                  - "logs:PutLogEvents"
                   - "cloudtrail:LookupEvents"
                   - "iam:ListUserTags"
                 Resource: "*"
               - Effect: "Allow"
                 Action:
                   - "s3:GetObject"
-                Resource: !Sub "arn:aws:s3:::mawule-new-bucket-1/*"
+                Resource: !Sub "arn:aws:s3:::bucket1-7nyh/*"
 
-  # Permission for EventBridge to invoke Lambda
   LambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
